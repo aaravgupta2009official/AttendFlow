@@ -1,0 +1,204 @@
+// prisma/schema.prisma — AttendFlow
+// Compatible with Prisma 6.x
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum SessionLocation {
+  OFFICE
+  WFH
+  OTHER
+}
+
+enum AuditAction {
+  CHECK_IN
+  CHECK_OUT
+  EMPLOYEE_INVITED
+  EMPLOYEE_REMOVED
+  SETTINGS_UPDATED
+  PLAN_CHANGED
+  LOGIN
+  LOGOUT
+  REPORT_EXPORTED
+}
+
+// ── Models ───────────────────────────────────────────────────
+
+model Company {
+  id           String        @id @default(uuid())
+  name         String
+  slug         String        @unique
+  plan         Plan          @default(FREE)
+  status       CompanyStatus @default(TRIAL)
+  logoUrl      String?
+  timezone     String        @default("UTC")
+  workdayHours Int           @default(8)
+  seats        Int           @default(10)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  users        User[]
+  employees    Employee[]
+  sessions     Session[]
+  auditLogs    AuditLog[]
+  subscription Subscription?
+  invites      Invite[]
+
+  @@index([slug])
+  @@index([plan])
+  @@index([status])
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(EMPLOYEE)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  companyId    String?
+  company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee     Employee?
+  auditLogs    AuditLog[]
+
+  @@index([companyId])
+  @@index([email])
+  @@index([role])
+}
+
+model Employee {
+  id          String    @id @default(uuid())
+  firstName   String
+  lastName    String
+  jobTitle    String?
+  department  String?
+  avatarUrl   String?
+  avatarColor String    @default("#f59e0b")
+  phone       String?
+  isActive    Boolean   @default(true)
+  hiredAt     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId      String?   @unique
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  sessions    Session[]
+
+  @@index([companyId])
+  @@index([companyId, isActive])
+  @@index([userId])
+}
+
+model Session {
+  id           String          @id @default(uuid())
+  checkIn      DateTime        @default(now())
+  checkOut     DateTime?
+  location     SessionLocation @default(OFFICE)
+  durationMins Int?
+  notes        String?
+  ipAddress    String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, checkIn])
+  @@index([companyId, employeeId])
+  @@index([companyId, checkOut])
+}
+
+model Subscription {
+  id                 String    @id @default(uuid())
+  plan               Plan      @default(FREE)
+  status             String    @default("active")
+  seats              Int       @default(10)
+  priceMonthly       Float     @default(0)
+  billingEmail       String?
+  stripeCustomerId   String?   @unique
+  stripeSubId        String?   @unique
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  companyId  String  @unique
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  action     AuditAction
+  targetId   String?
+  targetType String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime    @default(now())
+
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId     String?
+  user       User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, action])
+  @@index([userId])
+}
+
+model Invite {
+  id        String    @id @default(uuid())
+  email     String
+  role      Role      @default(EMPLOYEE)
+  token     String    @unique @default(uuid())
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([token])
+  @@unique([companyId, email])
+}
